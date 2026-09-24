@@ -1,1 +1,1 @@
-# iqscanner.github.io
+# quickscanner.github.io
