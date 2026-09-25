@@ -13,6 +13,11 @@ export interface Quad {
 }
 
 const MIN_AREA_RATIO = 0.15;
+// How far a candidate's aspect ratio may drift from the target (log-scale)
+// before it's rejected outright, e.g. 0.35 ~= up to ~1.42x off in either
+// direction. Loose enough for a card held at a slight angle, tight enough to
+// reject a table edge or a photo printed on the document itself.
+const ASPECT_TOLERANCE = 0.35;
 
 function orderPoints(pts: Point[]): Quad {
   const bySum = [...pts].sort((a, b) => a.x + a.y - (b.x + b.y));
@@ -25,13 +30,42 @@ function orderPoints(pts: Point[]): Quad {
   };
 }
 
+function dist(a: Point, b: Point) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function quadAspect(quad: Quad): number {
+  const width = (dist(quad.topLeft, quad.topRight) + dist(quad.bottomLeft, quad.bottomRight)) / 2;
+  const height = (dist(quad.topLeft, quad.bottomLeft) + dist(quad.topRight, quad.bottomRight)) / 2;
+  return width / Math.max(height, 1);
+}
+
+/** Log-scale distance between a quad's proportions and the target (0 = perfect match). */
+function aspectDeviation(quad: Quad, targetAspect: number): number {
+  const candidate = quadAspect(quad);
+  const diffA = Math.abs(Math.log(candidate / targetAspect));
+  const diffB = Math.abs(Math.log(candidate / (1 / targetAspect)));
+  return Math.min(diffA, diffB);
+}
+
+interface Candidate {
+  quad: Quad;
+  area: number;
+}
+
 /**
  * Classic scanner pipeline: grayscale -> blur -> Canny -> dilate -> contours.
- * Picks the largest 4-point contour that plausibly covers a sheet of paper,
- * ignoring small/noisy contours below MIN_AREA_RATIO of the frame.
+ *
+ * When `targetAspect` is given (e.g. an ID card or passport page's known
+ * width/height ratio), candidates whose shape doesn't plausibly match it are
+ * rejected outright rather than merely down-weighted — a table edge or a
+ * photo printed on the card is often *larger* in the frame than the actual
+ * document, so a soft area+aspect blend can still pick the wrong region. If
+ * nothing passes the shape gate, detection falls back to the largest quad
+ * overall so the user still gets a live outline to align against.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function detectDocumentQuad(cv: Cv, srcMat: any): Quad | null {
+export function detectDocumentQuad(cv: Cv, srcMat: any, targetAspect?: number): Quad | null {
   const gray = new cv.Mat();
   const blurred = new cv.Mat();
   const edged = new cv.Mat();
@@ -40,7 +74,7 @@ export function detectDocumentQuad(cv: Cv, srcMat: any): Quad | null {
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
 
-  let bestQuad: Quad | null = null;
+  const candidates: Candidate[] = [];
 
   try {
     cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
@@ -50,7 +84,6 @@ export function detectDocumentQuad(cv: Cv, srcMat: any): Quad | null {
     cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
 
     const frameArea = srcMat.rows * srcMat.cols;
-    let bestArea = 0;
 
     for (let i = 0; i < contours.size(); i++) {
       const contour = contours.get(i);
@@ -60,13 +93,12 @@ export function detectDocumentQuad(cv: Cv, srcMat: any): Quad | null {
 
       if (approx.rows === 4) {
         const area = Math.abs(cv.contourArea(approx));
-        if (area > bestArea && area > frameArea * MIN_AREA_RATIO) {
+        if (area > frameArea * MIN_AREA_RATIO) {
           const pts: Point[] = [];
           for (let j = 0; j < 4; j++) {
             pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] });
           }
-          bestArea = area;
-          bestQuad = orderPoints(pts);
+          candidates.push({ quad: orderPoints(pts), area });
         }
       }
       approx.delete();
@@ -82,5 +114,13 @@ export function detectDocumentQuad(cv: Cv, srcMat: any): Quad | null {
     hierarchy.delete();
   }
 
-  return bestQuad;
+  if (candidates.length === 0) return null;
+
+  if (targetAspect) {
+    const shapeMatched = candidates.filter((c) => aspectDeviation(c.quad, targetAspect) <= ASPECT_TOLERANCE);
+    const pool = shapeMatched.length > 0 ? shapeMatched : candidates;
+    return pool.reduce((best, c) => (c.area > best.area ? c : best)).quad;
+  }
+
+  return candidates.reduce((best, c) => (c.area > best.area ? c : best)).quad;
 }
