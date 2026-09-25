@@ -11,6 +11,8 @@
   "dependencies": {
     "@serwist/next": "^9.5.12",
     "@techstark/opencv-js": "^5.0.0-release.1",
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "clsx": "^2.1.1",
     "firebase": "^12.19.0",
     "idb": "^8.0.3",

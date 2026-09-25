@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { motion } from "motion/react";
 import { Check, Download, FileText, Loader2, Sparkles } from "lucide-react";
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/Input";
 import { loadOpenCv, type Cv } from "@/lib/scanner/opencv";
 import { computeFilterPreviews, applyFilterToImage } from "@/lib/scanner/process-page";
 import type { FilterId } from "@/lib/scanner/filters";
+import { getScanMode, instructionFor } from "@/lib/scanner/modes";
 import { recognizeText } from "@/lib/ocr";
 import { buildPdfFromImages, downloadBlob } from "@/lib/pdf-export";
 import { createDocument } from "@/lib/documents";
@@ -31,9 +32,19 @@ interface CapturedPage {
 type Stage = "camera" | "review" | "manage" | "saving" | "done";
 
 export default function ScanPage() {
+  return (
+    <Suspense fallback={<ScannerLoading label="Loading…" />}>
+      <ScanPageInner />
+    </Suspense>
+  );
+}
+
+function ScanPageInner() {
   const { user } = useAuth();
   const router = useRouter();
   const online = useOnlineStatus();
+  const searchParams = useSearchParams();
+  const mode = getScanMode(searchParams.get("mode"));
 
   const [stage, setStage] = useState<Stage>("camera");
   const [savedOffline, setSavedOffline] = useState(false);
@@ -41,8 +52,8 @@ export default function ScanPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [previews, setPreviews] = useState<Partial<Record<FilterId, string>>>({});
   const [applyingFilter, setApplyingFilter] = useState(false);
-  const [title, setTitle] = useState(() => `Scan ${new Date().toLocaleDateString()}`);
-  const [extractText, setExtractText] = useState(true);
+  const [title, setTitle] = useState(() => mode.defaultTitle());
+  const [extractText, setExtractText] = useState(() => mode.autoOcr ?? true);
   const [savingLabel, setSavingLabel] = useState("Saving…");
 
   const activePage = pages.find((p) => p.id === activeId) ?? null;
@@ -151,8 +162,12 @@ export default function ScanPage() {
 
       setSavingLabel("Uploading to your account…");
       try {
-        await createDocument(user.uid, { title: documentTitle, pages: pagePayload });
+        const docId = await createDocument(user.uid, { title: documentTitle, pages: pagePayload });
         setSavedOffline(false);
+        if (mode.autoOcr) {
+          router.push(`/dashboard/documents/${docId}`);
+          return;
+        }
       } catch (uploadErr) {
         // Upload failed mid-flight (connection dropped, etc) — don't lose the
         // scan, queue it for the next automatic sync attempt instead.
@@ -189,6 +204,7 @@ export default function ScanPage() {
       <CameraView
         onCapture={handleCapture}
         onCancel={() => (pages.length ? setStage("manage") : router.push("/dashboard"))}
+        instruction={instructionFor(mode, pages.length)}
       />
     );
   }
@@ -212,9 +228,14 @@ export default function ScanPage() {
           <Button onClick={() => setStage("camera")} variant="outline" fullWidth>
             Retake
           </Button>
-          <Button onClick={() => setStage("manage")} fullWidth>
+          <Button
+            onClick={() =>
+              setStage(mode.targetPages && pages.length < mode.targetPages ? "camera" : "manage")
+            }
+            fullWidth
+          >
             <Check className="h-4 w-4" />
-            Use this page
+            {mode.targetPages && pages.length < mode.targetPages ? "Next page" : "Use this page"}
           </Button>
         </div>
       </div>
@@ -250,18 +271,26 @@ export default function ScanPage() {
           onChange={(e) => setTitle(e.target.value)}
         />
 
-        <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300">
-          <input
-            type="checkbox"
-            checked={extractText}
-            onChange={(e) => setExtractText(e.target.checked)}
-            className="h-4 w-4 rounded accent-brand-500"
-          />
-          <span className="flex items-center gap-1.5">
-            <Sparkles className="h-4 w-4 text-brand-300" />
-            Extract text with OCR (makes the document searchable)
-          </span>
-        </label>
+        {mode.autoOcr ? (
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4 text-sm text-emerald-200">
+            <Sparkles className="h-4 w-4 shrink-0" />
+            Text extraction is on for this scan — you&apos;ll land on the text
+            editor as soon as it&apos;s saved.
+          </div>
+        ) : (
+          <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={extractText}
+              onChange={(e) => setExtractText(e.target.checked)}
+              className="h-4 w-4 rounded accent-brand-500"
+            />
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="h-4 w-4 text-brand-300" />
+              Extract text with OCR (makes the document searchable)
+            </span>
+          </label>
+        )}
 
         <Button onClick={handleSave} fullWidth disabled={pages.length === 0}>
           Save document ({pages.length} page{pages.length === 1 ? "" : "s"})
