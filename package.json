@@ -10,14 +10,17 @@
   },
   "dependencies": {
     "@serwist/next": "^9.5.12",
+    "@techstark/opencv-js": "^5.0.0-release.1",
     "clsx": "^2.1.1",
     "firebase": "^12.19.0",
     "lucide-react": "^1.48.0",
     "motion": "^13.4.4",
     "next": "16.3.6",
+    "pdf-lib": "^1.17.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-hot-toast": "^2.6.1"
+    "react-hot-toast": "^2.6.1",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
@@ -26,7 +29,9 @@
     "@types/react-dom": "^19.0.2",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.6",
+    "png-to-ico": "^3.0.2",
     "serwist": "^9.5.12",
+    "sharp": "^0.34.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3"
   }
