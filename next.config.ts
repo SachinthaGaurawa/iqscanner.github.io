@@ -12,7 +12,19 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "firebasestorage.googleapis.com" },
     ],
+  },
+  // @techstark/opencv-js is an Emscripten build that references Node-only
+  // modules it never actually calls in the browser; stub them out instead.
+  webpack: (config) => {
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      path: false,
+      crypto: false,
+    };
+    return config;
   },
 };
 
