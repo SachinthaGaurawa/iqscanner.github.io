@@ -22,9 +22,14 @@ export interface CaptureResult {
 interface CameraViewProps {
   onCapture: (result: CaptureResult) => void;
   onCancel: () => void;
+  instruction?: string;
 }
 
-export function CameraView({ onCapture, onCancel }: CameraViewProps) {
+export function CameraView({
+  onCapture,
+  onCancel,
+  instruction = "Line the document up inside the frame — the green outline locks on automatically.",
+}: CameraViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const procCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -255,9 +260,7 @@ export function CameraView({ onCapture, onCancel }: CameraViewProps) {
         </AnimatePresence>
       </div>
 
-      <p className="text-center text-xs text-slate-400">
-        Line the document up inside the frame — the green outline locks on automatically.
-      </p>
+      <p className="text-center text-xs text-slate-400">{instruction}</p>
 
       <div className="flex items-center gap-8">
         <button
