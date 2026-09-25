@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Files, FolderOpen, HardDrive, Loader2, ScanLine, Sparkles } from "lucide-react";
+import { CloudOff, Files, FolderOpen, HardDrive, Loader2, ScanLine, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { GuestBanner } from "@/components/dashboard/GuestBanner";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { DocumentCard } from "@/components/dashboard/DocumentCard";
+import { PendingDocumentCard } from "@/components/dashboard/PendingDocumentCard";
 import { useUserDocuments } from "@/lib/documents";
+import { usePendingDocuments } from "@/lib/offline-store";
+import { useOnlineStatus } from "@/lib/use-online-status";
 
 function formatBytes(bytes: number) {
   if (bytes <= 0) return "0 MB";
@@ -18,6 +21,8 @@ function formatBytes(bytes: number) {
 export default function DashboardPage() {
   const { user } = useAuth();
   const { docs, loading } = useUserDocuments(user?.uid);
+  const pendingDocs = usePendingDocuments(user?.uid);
+  const online = useOnlineStatus();
 
   if (!user) return null;
 
@@ -44,8 +49,15 @@ export default function DashboardPage() {
 
       {user?.isAnonymous && <GuestBanner />}
 
+      {!online && (
+        <div className="mb-6 flex items-center gap-2.5 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 text-sm text-amber-200">
+          <CloudOff className="h-4 w-4 shrink-0" />
+          You&apos;re offline. You can still scan documents — they&apos;ll sync automatically once you&apos;re back online.
+        </div>
+      )}
+
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard icon={Files} label="Documents scanned" value={String(docs.length)} />
+        <StatCard icon={Files} label="Documents scanned" value={String(docs.length + pendingDocs.length)} />
         <StatCard
           icon={HardDrive}
           label="Storage used"
@@ -82,7 +94,7 @@ export default function DashboardPage() {
           <div className="flex justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
           </div>
-        ) : docs.length === 0 ? (
+        ) : docs.length === 0 && pendingDocs.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 py-16 text-center">
             <FolderOpen className="mb-3 h-9 w-9 text-slate-600" />
             <p className="text-sm font-medium text-slate-300">No documents yet</p>
@@ -93,6 +105,9 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            {pendingDocs.map((doc) => (
+              <PendingDocumentCard key={doc.id} doc={doc} />
+            ))}
             {docs.map((record) => (
               <DocumentCard key={record.id} uid={user.uid} record={record} />
             ))}

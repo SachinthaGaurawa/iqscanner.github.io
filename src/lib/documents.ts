@@ -11,6 +11,7 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  updateDoc,
   where,
   type Unsubscribe,
 } from "firebase/firestore";
@@ -34,6 +35,20 @@ interface NewPage {
 
 function storagePath(uid: string, docId: string, pageIndex: number) {
   return `users/${uid}/documents/${docId}/page-${pageIndex + 1}.jpg`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDocumentSnapshot(id: string, data: Record<string, any>): DocumentRecord {
+  const createdAt = data.createdAt instanceof Timestamp ? data.createdAt.toDate() : null;
+  return {
+    id,
+    title: data.title ?? "Untitled",
+    pageCount: data.pageCount ?? 0,
+    pageUrls: data.pageUrls ?? [],
+    ocrText: data.ocrText ?? "",
+    sizeBytes: data.sizeBytes ?? 0,
+    createdAt,
+  };
 }
 
 export async function createDocument(
@@ -81,21 +96,39 @@ export function subscribeToUserDocuments(
   );
 
   return onSnapshot(q, (snapshot) => {
-    const records = snapshot.docs.map((snap) => {
-      const data = snap.data();
-      const createdAt = data.createdAt instanceof Timestamp ? data.createdAt.toDate() : null;
-      return {
-        id: snap.id,
-        title: data.title ?? "Untitled",
-        pageCount: data.pageCount ?? 0,
-        pageUrls: data.pageUrls ?? [],
-        ocrText: data.ocrText ?? "",
-        sizeBytes: data.sizeBytes ?? 0,
-        createdAt,
-      } satisfies DocumentRecord;
-    });
-    callback(records);
+    callback(snapshot.docs.map((snap) => mapDocumentSnapshot(snap.id, snap.data())));
   });
+}
+
+export function subscribeToDocument(
+  docId: string,
+  callback: (doc: DocumentRecord | null) => void,
+): Unsubscribe {
+  return onSnapshot(doc(db, "documents", docId), (snap) => {
+    callback(snap.exists() ? mapDocumentSnapshot(snap.id, snap.data()) : null);
+  });
+}
+
+export async function updateDocumentText(docId: string, ocrText: string): Promise<void> {
+  await updateDoc(doc(db, "documents", docId), { ocrText });
+}
+
+export function useDocument(docId: string | undefined) {
+  const [state, setState] = useState<{ id: string | null; record: DocumentRecord | null }>({
+    id: null,
+    record: null,
+  });
+
+  useEffect(() => {
+    if (!docId) return;
+    const unsubscribe = subscribeToDocument(docId, (record) => {
+      setState({ id: docId, record });
+    });
+    return unsubscribe;
+  }, [docId]);
+
+  const loaded = Boolean(docId) && state.id === docId;
+  return { record: loaded ? state.record : null, loading: Boolean(docId) && !loaded };
 }
 
 export async function deleteDocumentRecord(uid: string, record: DocumentRecord): Promise<void> {

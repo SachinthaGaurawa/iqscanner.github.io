@@ -18,6 +18,8 @@ import type { FilterId } from "@/lib/scanner/filters";
 import { recognizeText } from "@/lib/ocr";
 import { buildPdfFromImages, downloadBlob } from "@/lib/pdf-export";
 import { createDocument } from "@/lib/documents";
+import { addPendingDocument } from "@/lib/offline-store";
+import { useOnlineStatus } from "@/lib/use-online-status";
 
 interface CapturedPage {
   id: string;
@@ -31,8 +33,10 @@ type Stage = "camera" | "review" | "manage" | "saving" | "done";
 export default function ScanPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const online = useOnlineStatus();
 
   const [stage, setStage] = useState<Stage>("camera");
+  const [savedOffline, setSavedOffline] = useState(false);
   const [pages, setPages] = useState<CapturedPage[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [previews, setPreviews] = useState<Partial<Record<FilterId, string>>>({});
@@ -113,6 +117,8 @@ export default function ScanPage() {
   async function handleSave() {
     if (!user || pages.length === 0) return;
     setStage("saving");
+    const documentTitle = title.trim() || "Untitled scan";
+
     try {
       const pagePayload: { dataUrl: string; ocrText?: string }[] = [];
       for (let i = 0; i < pages.length; i++) {
@@ -128,11 +134,38 @@ export default function ScanPage() {
         pagePayload.push({ dataUrl: pages[i].dataUrl, ocrText });
       }
 
+      if (!online) {
+        // No connection right now — queue it locally; SyncManager uploads it
+        // automatically the moment connectivity (or the app) comes back.
+        await addPendingDocument({
+          id: crypto.randomUUID(),
+          ownerId: user.uid,
+          title: documentTitle,
+          pages: pagePayload,
+          createdAt: Date.now(),
+        });
+        setSavedOffline(true);
+        setStage("done");
+        return;
+      }
+
       setSavingLabel("Uploading to your account…");
-      await createDocument(user.uid, {
-        title: title.trim() || "Untitled scan",
-        pages: pagePayload,
-      });
+      try {
+        await createDocument(user.uid, { title: documentTitle, pages: pagePayload });
+        setSavedOffline(false);
+      } catch (uploadErr) {
+        // Upload failed mid-flight (connection dropped, etc) — don't lose the
+        // scan, queue it for the next automatic sync attempt instead.
+        console.error(uploadErr);
+        await addPendingDocument({
+          id: crypto.randomUUID(),
+          ownerId: user.uid,
+          title: documentTitle,
+          pages: pagePayload,
+          createdAt: Date.now(),
+        });
+        setSavedOffline(true);
+      }
 
       setStage("done");
     } catch (err) {
@@ -194,6 +227,12 @@ export default function ScanPage() {
       <div className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-6">
         <h1 className="font-display text-xl font-bold text-white">Review your scan</h1>
 
+        {!online && (
+          <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 text-sm text-amber-200">
+            You&apos;re offline — this will save on your device and sync automatically once you&apos;re back online.
+          </div>
+        )}
+
         <PageStrip
           pages={stripPages}
           activeId={activeId}
@@ -245,9 +284,18 @@ export default function ScanPage() {
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-accent-500">
           <FileText className="h-8 w-8 text-white" />
         </div>
-        <h1 className="font-display text-xl font-bold text-white">Document saved!</h1>
+        <h1 className="font-display text-xl font-bold text-white">
+          {savedOffline ? "Saved on this device" : "Document saved!"}
+        </h1>
         <p className="text-sm text-slate-400">
-          &ldquo;{title}&rdquo; is now safely stored in your account, synced to every device.
+          {savedOffline ? (
+            <>
+              &ldquo;{title}&rdquo; is saved locally — it&apos;ll upload to your
+              account automatically the moment you&apos;re back online.
+            </>
+          ) : (
+            <>&ldquo;{title}&rdquo; is now safely stored in your account, synced to every device.</>
+          )}
         </p>
         <div className="flex w-full flex-col gap-2">
           <Button onClick={handleDownloadPdf} variant="secondary" fullWidth>
