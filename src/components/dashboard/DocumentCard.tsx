@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
 import { Download, FileText, Loader2, Trash2 } from "lucide-react";
 import type { DocumentRecord } from "@/lib/documents";
@@ -35,24 +36,29 @@ export function DocumentCard({ uid, record }: { uid: string; record: DocumentRec
 
   return (
     <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-ink-800">
-        {record.pageUrls[0] ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={record.pageUrls[0]} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-slate-600">
-            <FileText className="h-5 w-5" />
-          </div>
-        )}
-      </div>
+      <Link
+        href={`/dashboard/documents/${record.id}`}
+        className="flex min-w-0 flex-1 items-center gap-4"
+      >
+        <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-ink-800">
+          {record.pageUrls[0] ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={record.pageUrls[0]} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-slate-600">
+              <FileText className="h-5 w-5" />
+            </div>
+          )}
+        </div>
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-white">{record.title}</p>
-        <p className="text-xs text-slate-500">
-          {record.pageCount} page{record.pageCount === 1 ? "" : "s"}
-          {record.createdAt ? ` · ${record.createdAt.toLocaleDateString()}` : ""}
-        </p>
-      </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-white">{record.title}</p>
+          <p className="text-xs text-slate-500">
+            {record.pageCount} page{record.pageCount === 1 ? "" : "s"}
+            {record.createdAt ? ` · ${record.createdAt.toLocaleDateString()}` : ""}
+          </p>
+        </div>
+      </Link>
 
       <div className="flex shrink-0 gap-1">
         <button
