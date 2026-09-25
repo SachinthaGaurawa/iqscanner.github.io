@@ -23,12 +23,21 @@ interface CameraViewProps {
   onCapture: (result: CaptureResult) => void;
   onCancel: () => void;
   instruction?: string;
+  /** Expected width/height of the document (e.g. an ID card) — biases detection accuracy. */
+  targetAspect?: number;
+  /** Same ratio, drawn as a static dashed alignment guide over the live feed. */
+  guideAspect?: number;
+  /** Optional extra button next to Cancel/Shutter (e.g. "Done" for batch scanning). */
+  rightAction?: { label: string; onClick: () => void };
 }
 
 export function CameraView({
   onCapture,
   onCancel,
   instruction = "Line the document up inside the frame — the green outline locks on automatically.",
+  targetAspect,
+  guideAspect,
+  rightAction,
 }: CameraViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -46,32 +55,57 @@ export function CameraView({
   const [aspect, setAspect] = useState(3 / 4);
   const [flash, setFlash] = useState(false);
 
-  const drawOverlay = useCallback((quad: Quad | null) => {
-    const canvas = overlayRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!quad) return;
+  const drawOverlay = useCallback(
+    (quad: Quad | null) => {
+      const canvas = overlayRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const pts = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
-    ctx.lineWidth = Math.max(3, canvas.width * 0.006);
-    ctx.strokeStyle = "rgba(163, 230, 53, 0.95)";
-    ctx.fillStyle = "rgba(163, 230, 53, 0.15)";
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+      if (guideAspect) {
+        const margin = 0.88;
+        let guideW = canvas.width * margin;
+        let guideH = guideW / guideAspect;
+        if (guideH > canvas.height * margin) {
+          guideH = canvas.height * margin;
+          guideW = guideH * guideAspect;
+        }
+        const gx = (canvas.width - guideW) / 2;
+        const gy = (canvas.height - guideH) / 2;
+        ctx.save();
+        ctx.strokeStyle = "rgba(226, 232, 240, 0.55)";
+        ctx.lineWidth = Math.max(2, canvas.width * 0.003);
+        ctx.setLineDash([canvas.width * 0.018, canvas.width * 0.012]);
+        const radius = canvas.width * 0.02;
+        ctx.beginPath();
+        ctx.roundRect(gx, gy, guideW, guideH, radius);
+        ctx.stroke();
+        ctx.restore();
+      }
 
-    ctx.fillStyle = "rgba(163, 230, 53, 1)";
-    for (const p of pts) {
+      if (!quad) return;
+
+      const pts = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
+      ctx.lineWidth = Math.max(3, canvas.width * 0.006);
+      ctx.strokeStyle = "rgba(163, 230, 53, 0.95)";
+      ctx.fillStyle = "rgba(163, 230, 53, 0.15)";
       ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(5, canvas.width * 0.01), 0, Math.PI * 2);
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
       ctx.fill();
-    }
-  }, []);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(163, 230, 53, 1)";
+      for (const p of pts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(5, canvas.width * 0.01), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    [guideAspect],
+  );
 
   const runDetection = useCallback(() => {
     const cv = cvRef.current;
@@ -93,7 +127,7 @@ export function CameraView({
       ctx.drawImage(video, 0, 0, proc.width, proc.height);
 
       const srcMat = cv.imread(proc);
-      const quad = detectDocumentQuad(cv, srcMat);
+      const quad = detectDocumentQuad(cv, srcMat, targetAspect);
       srcMat.delete();
 
       if (quad) {
@@ -113,7 +147,7 @@ export function CameraView({
     } finally {
       processingRef.current = false;
     }
-  }, [drawOverlay]);
+  }, [drawOverlay, targetAspect]);
 
   useEffect(() => {
     let cancelled = false;
@@ -270,7 +304,16 @@ export function CameraView({
           Cancel
         </button>
         <ShutterButton onPress={handleShutter} disabled={status !== "ready"} />
-        <div className="w-10" />
+        {rightAction ? (
+          <button
+            onClick={rightAction.onClick}
+            className="text-sm font-semibold text-brand-300 hover:text-brand-200"
+          >
+            {rightAction.label}
+          </button>
+        ) : (
+          <div className="w-10" />
+        )}
       </div>
     </div>
   );

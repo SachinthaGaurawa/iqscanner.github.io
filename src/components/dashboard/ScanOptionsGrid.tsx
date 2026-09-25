@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { motion } from "motion/react";
-import { BookOpen, IdCard, QrCode, ScanText, Stamp, TextSearch, type LucideIcon } from "lucide-react";
+import {
+  BookOpen,
+  IdCard,
+  Layers,
+  QrCode,
+  ScanText,
+  Stamp,
+  TextSearch,
+  type LucideIcon,
+} from "lucide-react";
 
 interface ScanOption {
   href: string;
@@ -47,6 +56,12 @@ const OPTIONS: ScanOption[] = [
     label: "QR / Barcode",
     icon: QrCode,
     gradient: "from-rose-500 to-pink-600",
+  },
+  {
+    href: "/dashboard/scan?mode=batch",
+    label: "Batch Scan",
+    icon: Layers,
+    gradient: "from-cyan-500 to-sky-600",
   },
 ];
 

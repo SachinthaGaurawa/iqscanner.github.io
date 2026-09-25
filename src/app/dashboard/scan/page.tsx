@@ -16,6 +16,7 @@ import { loadOpenCv, type Cv } from "@/lib/scanner/opencv";
 import { computeFilterPreviews, applyFilterToImage } from "@/lib/scanner/process-page";
 import type { FilterId } from "@/lib/scanner/filters";
 import { getScanMode, instructionFor } from "@/lib/scanner/modes";
+import { composeIdCardPage } from "@/lib/scanner/compose";
 import { recognizeText } from "@/lib/ocr";
 import { buildPdfFromImages, downloadBlob } from "@/lib/pdf-export";
 import { createDocument } from "@/lib/documents";
@@ -81,13 +82,19 @@ function ScanPageInner() {
       dataUrl: result.dataUrl,
     };
     setPages((prev) => [...prev, newPage]);
-    setActiveId(id);
-    setStage("review");
 
     if (!result.autoDetected) {
       toast("Edges weren't detected — using the full frame. You can retake if needed.", {
         icon: "⚠️",
       });
+    }
+
+    if (mode.continuous) {
+      // Batch mode: keep shooting — no per-page review screen.
+      toast.success(`Page ${pages.length + 1} captured`, { id: "batch-capture" });
+    } else {
+      setActiveId(id);
+      setStage("review");
     }
 
     // Auto-apply the enhanced look by default; the user can switch it below.
@@ -98,6 +105,25 @@ function ScanPageInner() {
     } catch {
       // Keep the original if enhancement fails for any reason.
     }
+  }
+
+  async function handleConfirmPage() {
+    const needsMorePages = Boolean(mode.targetPages && pages.length < mode.targetPages);
+    if (needsMorePages) {
+      setStage("camera");
+      return;
+    }
+
+    if (mode.id === "id" && pages.length === 2) {
+      try {
+        const composed = await composeIdCardPage(pages[0].dataUrl, pages[1].dataUrl);
+        setPages([{ id: crypto.randomUUID(), originalDataUrl: composed, filter: "original", dataUrl: composed }]);
+      } catch {
+        toast.error("Couldn't combine front and back — keeping them as separate pages.");
+      }
+    }
+
+    setStage("manage");
   }
 
   async function handleFilterChange(filter: FilterId) {
@@ -205,6 +231,13 @@ function ScanPageInner() {
         onCapture={handleCapture}
         onCancel={() => (pages.length ? setStage("manage") : router.push("/dashboard"))}
         instruction={instructionFor(mode, pages.length)}
+        targetAspect={mode.aspect}
+        guideAspect={mode.aspect}
+        rightAction={
+          mode.continuous && pages.length > 0
+            ? { label: `Done (${pages.length})`, onClick: () => setStage("manage") }
+            : undefined
+        }
       />
     );
   }
@@ -228,12 +261,7 @@ function ScanPageInner() {
           <Button onClick={() => setStage("camera")} variant="outline" fullWidth>
             Retake
           </Button>
-          <Button
-            onClick={() =>
-              setStage(mode.targetPages && pages.length < mode.targetPages ? "camera" : "manage")
-            }
-            fullWidth
-          >
+          <Button onClick={handleConfirmPage} fullWidth>
             <Check className="h-4 w-4" />
             {mode.targetPages && pages.length < mode.targetPages ? "Next page" : "Use this page"}
           </Button>
